@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+:root {
+  --kidos-purple: #5c2bd1;
+  --kidos-purple-deep: #3f1c9c;
+  --kidos-lavender: #eee6ff;
+  --kidos-lavender-strong: #d9c8ff;
+  --kidos-orange: #ffad26;
+  --kidos-orange-deep: #f7941d;
+  --kidos-cream: #fffaf1;
+  --kidos-ink: #17131f;
+  --kidos-muted: #625873;
+  --background: var(--kidos-purple);
+  --foreground: var(--kidos-ink);
+  --font-kidos-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-kidos-sans);
+}
+
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-kidos-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+}
+
+::selection {
+  background: var(--kidos-orange);
+  color: #ffffff;
+}

@@ -1,4 +1,4 @@
-from database import DatabaseConnection
+from backend.database import DatabaseConnection
 
 
 def main() -> None:
