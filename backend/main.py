@@ -1,6 +1,7 @@
 import os
 
 from backend.database import DatabaseConnection
+from backend.notice_observer import ClassroomEnrollmentService, EnrolledStudent
 from backend.user_factory import UserRegistrationService
 
 
@@ -52,6 +53,33 @@ def demonstrate_abstract_factory(database=None, save_to_database: bool = False) 
             print(f"MongoDB inserted id: {result.inserted_id}")
 
 
+def demonstrate_observer_pattern() -> None:
+    enrollment_service = ClassroomEnrollmentService()
+    classroom_id = "CSE-3204"
+
+    students = [
+        EnrolledStudent("S-2026-001", "Rahim Uddin", "rahim@student.example.com"),
+        EnrolledStudent("S-2026-002", "Karim Ahmed", "karim@student.example.com"),
+        EnrolledStudent("S-2026-003", "Nabila Islam", "nabila@student.example.com"),
+    ]
+
+    for student in students:
+        enrollment_service.enroll_student(classroom_id, student)
+
+    notice_board = enrollment_service.get_notice_board(classroom_id)
+    notice = notice_board.publish_notice(
+        title="SDP Lab Evaluation",
+        message="Observer pattern assignment will be checked this week.",
+        posted_by="Course Teacher",
+    )
+
+    print("\n=== Observer Pattern: Classroom Notice Board ===")
+    print(f"Notice published: {notice.title}")
+    print(f"Enrolled students notified: {notice_board.enrolled_student_count()}")
+    for student in students:
+        print(student.latest_notification_text())
+
+
 def main() -> None:
     first_connection = DatabaseConnection()
     second_connection = DatabaseConnection()
@@ -65,9 +93,11 @@ def main() -> None:
         print(f"Connected to MongoDB Atlas database: {database.name}")
         save_samples = os.getenv("SAVE_SAMPLE_USERS", "false").lower() == "true"
         demonstrate_abstract_factory(database, save_to_database=save_samples)
+        demonstrate_observer_pattern()
     else:
         print("Could not connect to MongoDB Atlas. Check your URI, username/password, and network access.")
         demonstrate_abstract_factory()
+        demonstrate_observer_pattern()
 
 
 if __name__ == "__main__":
