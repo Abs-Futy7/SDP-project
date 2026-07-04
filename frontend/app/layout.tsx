@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Kidos Learning Academy",
-  description: "A warm, child-focused learning academy landing page.",
+  title: "University Management System",
+  description: "University management portal for registration, notices, and role dashboards.",
 };
 
 export default function RootLayout({
