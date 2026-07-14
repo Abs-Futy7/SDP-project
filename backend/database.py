@@ -2,10 +2,15 @@ import os
 import threading
 from typing import Optional
 
-from dotenv import load_dotenv
 from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    def load_dotenv() -> bool:
+        return False
 
 
 class DatabaseConnection:
