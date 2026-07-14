@@ -120,6 +120,157 @@ cd Project
 python -m backend.main
 ```
 
+## Running Frontend With Backend API
+
+The frontend now connects to a FastAPI backend API. Run these commands from the project on the E drive.
+
+Install backend packages:
+
+```powershell
+cd E:\CSEDU\3-2\SDP-Lab\Project\backend
+pip install -r requirements.txt
+```
+
+Start the backend API:
+
+```powershell
+cd E:\CSEDU\3-2\SDP-Lab\Project
+python -m uvicorn backend.api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Start the frontend in another terminal:
+
+```powershell
+cd E:\CSEDU\3-2\SDP-Lab\Project\frontend
+npm run dev
+```
+
+The frontend uses this backend URL by default:
+
+```env
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+```
+
+The backend `.env` must allow the frontend origin:
+
+```env
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+```
+
+Useful API endpoints:
+
+- `GET /api/health`
+- `POST /api/login`
+- `POST /api/register`
+- `GET /api/classrooms/CSE-3204/notice-board`
+- `GET /api/classrooms/CSE-3204/students/S-2026-001/notice-board`
+- `POST /api/classrooms/CSE-3204/notices`
+
+## Deploy On Vercel Free
+
+Vercel now detects this repository as a **Services** project because it has both a Next.js frontend and a FastAPI backend. The root `vercel.json` defines both services:
+
+- `frontend` service: Next.js app from `frontend`
+- `backend` service: FastAPI app from `backend`
+
+Requests under `/api/*` go to the backend. All other routes go to the frontend.
+
+### 1. Push The Project To GitHub
+
+Make sure the project is pushed to GitHub first. Do not commit `backend/.env`.
+
+### 2. Create The Vercel Project
+
+In Vercel:
+
+1. Click **Add New Project**.
+2. Import the GitHub repository.
+3. Keep **Root Directory** as:
+
+```text
+./
+```
+
+4. Keep **Application Preset** as:
+
+```text
+Services
+```
+
+5. Vercel should now read the root `vercel.json`.
+
+### 3. Add Environment Variables
+
+Add these environment variables in the Vercel project:
+
+```env
+MONGODB_URI=your_real_mongodb_atlas_uri
+DATABASE_NAME=school_management
+SAVE_API_USERS=true
+SAVE_API_NOTICES=true
+NEXT_PUBLIC_API_URL=
+CORS_ORIGINS=https://your-project-name.vercel.app,http://localhost:3000,http://127.0.0.1:3000
+```
+
+For Vercel Services, the frontend and backend share one domain, so `NEXT_PUBLIC_API_URL` can be left empty. The frontend will call `/api/...` on the same deployment domain.
+
+### 4. Deploy
+
+Click **Deploy**.
+
+After deployment, your app will be available at one URL:
+
+```text
+https://your-project-name.vercel.app
+```
+
+API routes will be under the same domain:
+
+```text
+https://your-project-name.vercel.app/api/health
+```
+
+### 5. Seed Users
+
+The database can be seeded from your local machine because MongoDB Atlas is remote:
+
+```powershell
+cd E:\CSEDU\3-2\SDP-Lab\Project
+python -m backend.seed_users
+```
+
+### Vercel Notes
+
+- The backend is a serverless FastAPI function, so memory state can reset between requests.
+- User records, notices, and student notifications are saved in MongoDB Atlas.
+- The Observer pattern is still used when publishing a notice; MongoDB is used so deployed responses survive serverless restarts.
+- If MongoDB Atlas Network Access blocks Vercel, allow access from anywhere for this lab project using `0.0.0.0/0`, or configure a stricter production-safe network rule later.
+
+## Seed Demo Users Into MongoDB
+
+The backend includes a database seed script that creates:
+
+- 10 students: `S-2026-001` to `S-2026-010`
+- 5 teachers: `T-101` to `T-105`
+- 5 staff users: `ST-001` to `ST-005`
+
+Run it from the project root:
+
+```powershell
+cd E:\CSEDU\3-2\SDP-Lab\Project
+python -m backend.seed_users
+```
+
+The script is idempotent. If a user ID or email already exists, it skips that user instead of inserting a duplicate.
+
+Default passwords:
+
+- Students: `student123`
+- Teachers: `teacher123`
+- Staff: `staff123`
+
+The seed script still uses the Abstract Factory registration service, so users are created through the same backend pattern flow as normal registration.
+
 ---
 
 ## Task 2: Abstract Factory Pattern For User Registration

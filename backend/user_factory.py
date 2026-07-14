@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
@@ -227,3 +228,15 @@ class UserRegistrationService:
         salt = os.urandom(16)
         password_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
         return f"{salt.hex()}:{password_hash.hex()}"
+
+    @staticmethod
+    def verify_password(password: str, stored_password_hash: str) -> bool:
+        try:
+            salt_hex, hash_hex = stored_password_hash.split(":", 1)
+            salt = bytes.fromhex(salt_hex)
+            expected_hash = bytes.fromhex(hash_hex)
+        except ValueError:
+            return False
+
+        actual_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
+        return hmac.compare_digest(actual_hash, expected_hash)

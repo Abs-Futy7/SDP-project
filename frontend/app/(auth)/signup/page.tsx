@@ -1,6 +1,10 @@
 "use client";
 
+import { registerUser } from "@/lib/api";
+import { saveSession } from "@/lib/auth";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { FormEvent } from "react";
 import { useState } from "react";
 
 type Role = "student" | "teacher" | "staff";
@@ -13,7 +17,47 @@ const roleFields: Record<Role, { idLabel: string; extraLabel: string; dashboard:
 
 export default function SignUpPage() {
   const [role, setRole] = useState<Role>("student");
+  const [status, setStatus] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const router = useRouter();
   const selectedRole = roleFields[role];
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setStatus("Creating account through backend...");
+
+    const formData = new FormData(event.currentTarget);
+
+    try {
+      const result = await registerUser({
+        user_type: role,
+        name: String(formData.get("name") ?? ""),
+        email: String(formData.get("email") ?? ""),
+        password: String(formData.get("password") ?? ""),
+        university_id: String(formData.get("university_id") ?? ""),
+        department: String(formData.get("department") ?? "CSE"),
+        extra: String(formData.get("extra") ?? ""),
+      });
+
+      setStatus(
+        result.database_saved
+          ? `${result.welcome_message} Saved to ${result.collection_name}.`
+          : `${result.welcome_message} Backend connected, database save skipped.`,
+      );
+      saveSession({
+        role,
+        name: result.name,
+        email: result.email,
+        university_id: result.university_id,
+      });
+      router.push(result.dashboard_route);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not create account.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <main className="auth-page">
@@ -39,42 +83,47 @@ export default function SignUpPage() {
           ))}
         </div>
 
-        <form className="mt-5 grid gap-4 sm:grid-cols-2">
+        <form className="mt-5 grid gap-4 sm:grid-cols-2" onSubmit={handleSubmit}>
           <div>
             <label className="field-label" htmlFor="name">
               Full name
             </label>
-            <input id="name" className="field mt-2" placeholder="Enter full name" />
+            <input id="name" name="name" className="field mt-2" placeholder="Enter full name" required />
           </div>
           <div>
             <label className="field-label" htmlFor="email">
               Email
             </label>
-            <input id="email" className="field mt-2" placeholder="name@university.edu" />
+            <input id="email" name="email" type="email" className="field mt-2" placeholder="name@university.edu" required />
           </div>
           <div>
             <label className="field-label" htmlFor="id">
               {selectedRole.idLabel}
             </label>
-            <input id="id" className="field mt-2" placeholder="University ID" />
+            <input id="id" name="university_id" className="field mt-2" placeholder="University ID" required />
           </div>
           <div>
             <label className="field-label" htmlFor="department">
               Department
             </label>
-            <input id="department" className="field mt-2" defaultValue="CSE" />
+            <input id="department" name="department" className="field mt-2" defaultValue="CSE" required />
           </div>
           <div>
             <label className="field-label" htmlFor="extra">
               {selectedRole.extraLabel}
             </label>
-            <input id="extra" className="field mt-2" />
+            <input id="extra" name="extra" className="field mt-2" required />
           </div>
           <div>
             <label className="field-label" htmlFor="password">
               Password
             </label>
-            <input id="password" type="password" className="field mt-2" />
+            <input id="password" name="password" type="password" className="field mt-2" required />
+          </div>
+          <div className="sm:col-span-2">
+            <button type="submit" className="primary-button" disabled={isSubmitting}>
+              {isSubmitting ? "Registering..." : "Register account"}
+            </button>
           </div>
         </form>
 
@@ -87,10 +136,13 @@ export default function SignUpPage() {
           </p>
         </div>
 
+        {status ? (
+          <div className="mt-5 rounded-md bg-[var(--campus-blue-soft)] p-4 text-sm font-bold text-[var(--campus-blue)]">
+            {status}
+          </div>
+        ) : null}
+
         <div className="mt-5 flex flex-wrap items-center gap-3">
-          <Link href={selectedRole.dashboard} className="primary-link">
-            Register account
-          </Link>
           <Link href="/signin" className="secondary-button">
             Already have an account
           </Link>
