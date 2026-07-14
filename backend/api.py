@@ -9,9 +9,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 
-from backend.database import DatabaseConnection
-from backend.notice_observer import ClassroomEnrollmentService, EnrolledStudent
-from backend.user_factory import UserRegistrationService
+try:
+    from backend.database import DatabaseConnection
+    from backend.notice_observer import ClassroomEnrollmentService, EnrolledStudent
+    from backend.user_factory import UserRegistrationService
+except ModuleNotFoundError:
+    from database import DatabaseConnection
+    from notice_observer import ClassroomEnrollmentService, EnrolledStudent
+    from user_factory import UserRegistrationService
 
 
 load_dotenv()
