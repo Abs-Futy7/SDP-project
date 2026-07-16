@@ -6,7 +6,7 @@ from typing import Dict, List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 try:
     from dotenv import load_dotenv
@@ -16,10 +16,14 @@ except ModuleNotFoundError:
 
 try:
     from backend.database import DatabaseConnection
+    from backend.fee_strategy import FeeStrategyProvider
+    from backend.grade_strategy import GradeStrategyProvider
     from backend.notice_observer import ClassroomEnrollmentService, EnrolledStudent
     from backend.user_factory import UserRegistrationService
 except ModuleNotFoundError:
     from database import DatabaseConnection
+    from fee_strategy import FeeStrategyProvider
+    from grade_strategy import GradeStrategyProvider
     from notice_observer import ClassroomEnrollmentService, EnrolledStudent
     from user_factory import UserRegistrationService
 
@@ -106,6 +110,35 @@ class NoticeBoardResponse(BaseModel):
 class StudentNoticeBoardResponse(BaseModel):
     classroom_id: str
     student: StudentNotificationResponse
+
+
+class StudentPolicyCalculationRequest(BaseModel):
+    student_id: str
+    student_name: str
+    course_id: str
+    grade_policy: str
+    fee_policy: str
+    exam_score: float = Field(default=0, ge=0, le=100)
+    lab_score: float = Field(default=0, ge=0, le=100)
+    assignment_score: float = Field(default=0, ge=0, le=100)
+    attendance_score: float = Field(default=0, ge=0, le=100)
+    viva_score: float = Field(default=0, ge=0, le=100)
+    base_fee: float = Field(ge=0)
+
+
+class StudentPolicyCalculationResponse(BaseModel):
+    student_id: str
+    student_name: str
+    course_id: str
+    final_score: float
+    letter_grade: str
+    grade_policy_used: str
+    grade_explanation: str
+    original_fee: float
+    discount_amount: float
+    payable_fee: float
+    fee_policy_used: str
+    fee_explanation: str
 
 
 enrollment_service = ClassroomEnrollmentService()
@@ -442,3 +475,38 @@ def publish_notice(classroom_id: str, request: PublishNoticeRequest):
             database["student_notifications"].insert_many(notification_documents)
 
     return _notice_board_response(classroom_id)
+
+
+@app.post("/api/student-policy/calculate", response_model=StudentPolicyCalculationResponse)
+def calculate_student_policy(request: StudentPolicyCalculationRequest):
+    try:
+        grade_strategy = GradeStrategyProvider.get_strategy(request.grade_policy)
+        fee_strategy = FeeStrategyProvider.get_strategy(request.fee_policy)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    grade_result = grade_strategy.calculate(
+        {
+            "exam_score": request.exam_score,
+            "lab_score": request.lab_score,
+            "assignment_score": request.assignment_score,
+            "attendance_score": request.attendance_score,
+            "viva_score": request.viva_score,
+        }
+    )
+    fee_result = fee_strategy.calculate(request.base_fee)
+
+    return StudentPolicyCalculationResponse(
+        student_id=request.student_id,
+        student_name=request.student_name,
+        course_id=request.course_id,
+        final_score=grade_result.final_score,
+        letter_grade=grade_result.letter_grade,
+        grade_policy_used=grade_result.policy_name,
+        grade_explanation=grade_result.explanation,
+        original_fee=fee_result.original_fee,
+        discount_amount=fee_result.discount_amount,
+        payable_fee=fee_result.payable_fee,
+        fee_policy_used=fee_result.policy_name,
+        fee_explanation=fee_result.explanation,
+    )

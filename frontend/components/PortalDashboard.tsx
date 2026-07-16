@@ -1,11 +1,14 @@
 "use client";
 
 import {
+  calculateStudentPolicy,
   getNoticeBoard,
   getStudentNoticeBoard,
   publishNotice,
   type NoticeBoardResponse,
   type NoticeStudent,
+  type StudentPolicyCalculationPayload,
+  type StudentPolicyCalculationResponse,
   type StudentNoticeBoardResponse,
 } from "@/lib/api";
 import { clearSession, getSession, type AuthSession } from "@/lib/auth";
@@ -14,7 +17,14 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type DashboardRole = "student" | "teacher" | "staff";
-type DashboardPage = "overview" | "classrooms" | "notices" | "students" | "settings";
+type DashboardPage = "overview" | "classrooms" | "notices" | "students" | "policy" | "settings";
+type NumericPolicyField =
+  | "exam_score"
+  | "lab_score"
+  | "assignment_score"
+  | "attendance_score"
+  | "viva_score"
+  | "base_fee";
 
 type PortalDashboardProps = {
   role: DashboardRole;
@@ -39,6 +49,28 @@ const roleCopy: Record<DashboardRole, { title: string; subtitle: string; action:
 };
 
 const classroomId = "CSE-3204";
+const scoreFields: Array<{ key: NumericPolicyField; label: string }> = [
+  { key: "exam_score", label: "Exam score" },
+  { key: "lab_score", label: "Lab score" },
+  { key: "assignment_score", label: "Assignment score" },
+  { key: "attendance_score", label: "Attendance score" },
+  { key: "viva_score", label: "Viva score" },
+  { key: "base_fee", label: "Base semester fee" },
+];
+
+const initialPolicyForm: StudentPolicyCalculationPayload = {
+  student_id: "S-2026-001",
+  student_name: "Rahim Uddin",
+  course_id: classroomId,
+  grade_policy: "lab_course",
+  fee_policy: "merit",
+  exam_score: 78,
+  lab_score: 88,
+  assignment_score: 82,
+  attendance_score: 90,
+  viva_score: 84,
+  base_fee: 25000,
+};
 
 export default function PortalDashboard({ role }: PortalDashboardProps) {
   const router = useRouter();
@@ -51,6 +83,10 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
   const [studentNoticeBoard, setStudentNoticeBoard] =
     useState<StudentNoticeBoardResponse | null>(null);
   const [status, setStatus] = useState("Loading classroom notice board...");
+  const [policyStatus, setPolicyStatus] = useState("Choose policies and calculate the result.");
+  const [policyForm, setPolicyForm] = useState<StudentPolicyCalculationPayload>(initialPolicyForm);
+  const [policyResult, setPolicyResult] = useState<StudentPolicyCalculationResponse | null>(null);
+  const [isCalculatingPolicy, setIsCalculatingPolicy] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -83,6 +119,7 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
           { key: "classrooms", label: "Classrooms" },
           { key: "notices", label: "Notices" },
           { key: "students", label: "Students" },
+          { key: "policy", label: "Policy Calculator" },
           { key: "settings", label: "Settings" },
         ];
 
@@ -158,6 +195,21 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
     }
   }
 
+  async function handleCalculatePolicy() {
+    setIsCalculatingPolicy(true);
+    setPolicyStatus("Calculating grade and fee policies...");
+
+    try {
+      const data = await calculateStudentPolicy(policyForm);
+      setPolicyResult(data);
+      setPolicyStatus("Strategy policies applied successfully.");
+    } catch (error) {
+      setPolicyStatus(error instanceof Error ? error.message : "Could not calculate policies.");
+    } finally {
+      setIsCalculatingPolicy(false);
+    }
+  }
+
   if (!isAuthorized) {
     return (
       <main className="auth-page">
@@ -199,6 +251,19 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
 
     if (activePage === "students" && role !== "student") {
       return <StudentsPage students={visibleStudents} enrolledCount={enrolledStudents.length} />;
+    }
+
+    if (activePage === "policy" && role !== "student") {
+      return (
+        <PolicyCalculatorPage
+          form={policyForm}
+          result={policyResult}
+          status={policyStatus}
+          isCalculating={isCalculatingPolicy}
+          onFormChange={setPolicyForm}
+          onCalculate={handleCalculatePolicy}
+        />
+      );
     }
 
     return <SettingsPage role={role} />;
@@ -442,6 +507,198 @@ function StudentsPage({
         <StudentsInboxList students={students} />
       </div>
     </section>
+  );
+}
+
+function PolicyCalculatorPage({
+  form,
+  result,
+  status,
+  isCalculating,
+  onFormChange,
+  onCalculate,
+}: {
+  form: StudentPolicyCalculationPayload;
+  result: StudentPolicyCalculationResponse | null;
+  status: string;
+  isCalculating: boolean;
+  onFormChange: (value: StudentPolicyCalculationPayload) => void;
+  onCalculate: () => void;
+}) {
+  function updateTextField(
+    field: "student_id" | "student_name" | "course_id",
+    value: string,
+  ) {
+    onFormChange({ ...form, [field]: value });
+  }
+
+  function updateNumberField(field: NumericPolicyField, value: string) {
+    const parsedValue = Number(value);
+    onFormChange({ ...form, [field]: Number.isNaN(parsedValue) ? 0 : parsedValue });
+  }
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1fr_0.95fr]">
+      <section className="panel">
+        <h2 className="section-title">Policy Calculator</h2>
+        <p className="mt-2 text-sm leading-6 text-[var(--campus-muted)]">
+          Calculate a student's grade and semester fee using selected Strategy Pattern policies.
+        </p>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <div>
+            <label className="field-label" htmlFor="policy-student-id">
+              Student ID
+            </label>
+            <input
+              id="policy-student-id"
+              value={form.student_id}
+              onChange={(event) => updateTextField("student_id", event.target.value)}
+              className="field mt-2"
+            />
+          </div>
+          <div>
+            <label className="field-label" htmlFor="policy-student-name">
+              Student name
+            </label>
+            <input
+              id="policy-student-name"
+              value={form.student_name}
+              onChange={(event) => updateTextField("student_name", event.target.value)}
+              className="field mt-2"
+            />
+          </div>
+          <div>
+            <label className="field-label" htmlFor="policy-course-id">
+              Course ID
+            </label>
+            <input
+              id="policy-course-id"
+              value={form.course_id}
+              onChange={(event) => updateTextField("course_id", event.target.value)}
+              className="field mt-2"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="field-label" htmlFor="grade-policy">
+              Grade policy
+            </label>
+            <select
+              id="grade-policy"
+              value={form.grade_policy}
+              onChange={(event) =>
+                onFormChange({
+                  ...form,
+                  grade_policy: event.target.value as StudentPolicyCalculationPayload["grade_policy"],
+                })
+              }
+              className="field mt-2"
+            >
+              <option value="lab_course">Lab course</option>
+              <option value="theory_course">Theory course</option>
+              <option value="balanced">Balanced</option>
+            </select>
+          </div>
+          <div>
+            <label className="field-label" htmlFor="fee-policy">
+              Fee policy
+            </label>
+            <select
+              id="fee-policy"
+              value={form.fee_policy}
+              onChange={(event) =>
+                onFormChange({
+                  ...form,
+                  fee_policy: event.target.value as StudentPolicyCalculationPayload["fee_policy"],
+                })
+              }
+              className="field mt-2"
+            >
+              <option value="regular">Regular</option>
+              <option value="merit">Merit scholarship</option>
+              <option value="sibling">Sibling discount</option>
+              <option value="financial_aid">Financial aid</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {scoreFields.map((field) => (
+            <div key={field.key}>
+              <label className="field-label" htmlFor={`policy-${field.key}`}>
+                {field.label}
+              </label>
+              <input
+                id={`policy-${field.key}`}
+                type="number"
+                min={0}
+                max={field.key === "base_fee" ? undefined : 100}
+                value={form[field.key]}
+                onChange={(event) => updateNumberField(field.key, event.target.value)}
+                className="field mt-2"
+              />
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className="primary-button mt-5"
+          onClick={onCalculate}
+          disabled={isCalculating}
+        >
+          {isCalculating ? "Calculating..." : "Calculate policies"}
+        </button>
+
+        <div className="mt-4 rounded-md bg-[var(--campus-blue-soft)] p-4 text-sm font-bold text-[var(--campus-blue)]">
+          {status}
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2 className="section-title">Calculation Result</h2>
+        {result ? (
+          <div className="mt-5 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ResultMetric label="Final score" value={result.final_score.toFixed(2)} />
+              <ResultMetric label="Letter grade" value={result.letter_grade} />
+              <ResultMetric label="Original fee" value={`Tk ${result.original_fee.toFixed(2)}`} />
+              <ResultMetric label="Payable fee" value={`Tk ${result.payable_fee.toFixed(2)}`} />
+            </div>
+            <div className="rounded-md border border-[var(--campus-border)] bg-[rgba(255,248,230,0.68)] p-4">
+              <p className="text-sm font-black">{result.grade_policy_used}</p>
+              <p className="mt-2 text-sm leading-6 text-[var(--campus-muted)]">
+                {result.grade_explanation}
+              </p>
+            </div>
+            <div className="rounded-md border border-[var(--campus-border)] bg-[rgba(255,248,230,0.68)] p-4">
+              <p className="text-sm font-black">{result.fee_policy_used}</p>
+              <p className="mt-2 text-sm leading-6 text-[var(--campus-muted)]">
+                Discount Tk {result.discount_amount.toFixed(2)}. {result.fee_explanation}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-5 text-sm leading-6 text-[var(--campus-muted)]">
+            The calculated grade and fee summary will appear here.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ResultMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="rounded-md border border-[var(--campus-border)] bg-[rgba(255,248,230,0.68)] p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--campus-muted)]">
+        {label}
+      </p>
+      <p className="mt-2 text-xl font-black">{value}</p>
+    </article>
   );
 }
 

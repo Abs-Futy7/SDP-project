@@ -64,6 +64,35 @@ export type StudentNoticeBoardResponse = {
   student: NoticeStudent;
 };
 
+export type StudentPolicyCalculationPayload = {
+  student_id: string;
+  student_name: string;
+  course_id: string;
+  grade_policy: "lab_course" | "theory_course" | "balanced";
+  fee_policy: "regular" | "merit" | "sibling" | "financial_aid";
+  exam_score: number;
+  lab_score: number;
+  assignment_score: number;
+  attendance_score: number;
+  viva_score: number;
+  base_fee: number;
+};
+
+export type StudentPolicyCalculationResponse = {
+  student_id: string;
+  student_name: string;
+  course_id: string;
+  final_score: number;
+  letter_grade: string;
+  grade_policy_used: string;
+  grade_explanation: string;
+  original_fee: number;
+  discount_amount: number;
+  payable_fee: number;
+  fee_policy_used: string;
+  fee_explanation: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -113,5 +142,12 @@ export function publishNotice(classroomId: string, title: string, message: strin
       message,
       posted_by: "Course Teacher",
     }),
+  });
+}
+
+export function calculateStudentPolicy(payload: StudentPolicyCalculationPayload) {
+  return request<StudentPolicyCalculationResponse>("/api/student-policy/calculate", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
