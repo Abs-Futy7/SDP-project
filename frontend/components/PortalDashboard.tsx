@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type DashboardRole = "student" | "teacher" | "staff";
-type DashboardPage = "overview" | "classrooms" | "notices" | "students" | "policy" | "settings";
+type DashboardPage = "overview" | "classrooms" | "notices" | "students" | "records" | "policy" | "settings";
 type NumericPolicyField =
   | "exam_score"
   | "lab_score"
@@ -28,6 +28,28 @@ type NumericPolicyField =
 
 type PortalDashboardProps = {
   role: DashboardRole;
+};
+
+type StudentSubjectRecord = {
+  code: string;
+  title: string;
+  credit: number;
+  examScore: number;
+  labScore: number;
+  assignmentScore: number;
+  attendanceScore: number;
+  finalScore: number;
+  letterGrade: string;
+  status: "Passed" | "In progress";
+};
+
+type StudentFeeRecord = {
+  semesterFee: number;
+  scholarship: number;
+  paidAmount: number;
+  dueAmount: number;
+  dueDate: string;
+  status: "Paid" | "Partial" | "Due";
 };
 
 const roleCopy: Record<DashboardRole, { title: string; subtitle: string; action: string }> = {
@@ -72,6 +94,66 @@ const initialPolicyForm: StudentPolicyCalculationPayload = {
   base_fee: 25000,
 };
 
+const studentSubjectRecords: StudentSubjectRecord[] = [
+  {
+    code: "CSE-3201",
+    title: "Software Engineering",
+    credit: 3,
+    examScore: 82,
+    labScore: 0,
+    assignmentScore: 86,
+    attendanceScore: 94,
+    finalScore: 84.0,
+    letterGrade: "A+",
+    status: "Passed",
+  },
+  {
+    code: "CSE-3204",
+    title: "Software Development Project Lab",
+    credit: 1.5,
+    examScore: 78,
+    labScore: 88,
+    assignmentScore: 82,
+    attendanceScore: 90,
+    finalScore: 86.2,
+    letterGrade: "A+",
+    status: "In progress",
+  },
+  {
+    code: "CSE-3207",
+    title: "Database Management Systems",
+    credit: 3,
+    examScore: 74,
+    labScore: 0,
+    assignmentScore: 80,
+    attendanceScore: 88,
+    finalScore: 76.6,
+    letterGrade: "A",
+    status: "Passed",
+  },
+  {
+    code: "CSE-3211",
+    title: "Computer Networks",
+    credit: 3,
+    examScore: 68,
+    labScore: 72,
+    assignmentScore: 78,
+    attendanceScore: 85,
+    finalScore: 72.1,
+    letterGrade: "A",
+    status: "In progress",
+  },
+];
+
+const studentFeeRecord: StudentFeeRecord = {
+  semesterFee: 25000,
+  scholarship: 7500,
+  paidAmount: 12000,
+  dueAmount: 5500,
+  dueDate: "2026-08-15",
+  status: "Partial",
+};
+
 export default function PortalDashboard({ role }: PortalDashboardProps) {
   const router = useRouter();
   const [activePage, setActivePage] = useState<DashboardPage>("overview");
@@ -111,6 +193,7 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
       ? [
           { key: "overview", label: "Overview" },
           { key: "classrooms", label: "Classrooms" },
+          { key: "records", label: "Academic & Fees" },
           { key: "notices", label: "My Notices" },
           { key: "settings", label: "Settings" },
         ]
@@ -249,6 +332,16 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
       );
     }
 
+    if (activePage === "records" && role === "student") {
+      return (
+        <StudentRecordsPage
+          session={session}
+          subjects={studentSubjectRecords}
+          fee={studentFeeRecord}
+        />
+      );
+    }
+
     if (activePage === "students" && role !== "student") {
       return <StudentsPage students={visibleStudents} enrolledCount={enrolledStudents.length} />;
     }
@@ -340,13 +433,16 @@ function OverviewPage({
   noticeBoard: NoticeBoardResponse | null;
   student?: NoticeStudent;
 }) {
+  const averageScore =
+    studentSubjectRecords.reduce((total, subject) => total + subject.finalScore, 0) /
+    studentSubjectRecords.length;
   const metrics =
     role === "student"
       ? [
           ["Classroom", classroomId, "Software Development Project Lab"],
-          ["My notices", String(student?.notification_count ?? 0), "Received in your inbox"],
-          ["My status", student?.enrolled ? "Subscribed" : "Paused", "Classroom notice access"],
-          ["Role", "Student", copy.action],
+          ["Subjects", String(studentSubjectRecords.length), "Current semester courses"],
+          ["Average", averageScore.toFixed(1), "Across published marks"],
+          ["Fee due", `Tk ${studentFeeRecord.dueAmount}`, `${studentFeeRecord.status} payment status`],
         ]
       : [
           ["Classroom", classroomId, "Software Development Project Lab"],
@@ -699,6 +795,151 @@ function ResultMetric({ label, value }: { label: string; value: string }) {
       </p>
       <p className="mt-2 text-xl font-black">{value}</p>
     </article>
+  );
+}
+
+function StudentRecordsPage({
+  session,
+  subjects,
+  fee,
+}: {
+  session: AuthSession | null;
+  subjects: StudentSubjectRecord[];
+  fee: StudentFeeRecord;
+}) {
+  const totalCredits = subjects.reduce((total, subject) => total + subject.credit, 0);
+  const averageScore =
+    subjects.reduce((total, subject) => total + subject.finalScore, 0) / subjects.length;
+
+  return (
+    <div className="grid gap-5">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <ResultMetric label="Student ID" value={session?.university_id ?? "S-2026-001"} />
+        <ResultMetric label="Total credits" value={totalCredits.toFixed(1)} />
+        <ResultMetric label="Average score" value={averageScore.toFixed(1)} />
+        <ResultMetric label="Fee due" value={`Tk ${fee.dueAmount.toFixed(2)}`} />
+      </section>
+
+      <section className="panel">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="section-title">Subjects and Marks</h2>
+            <p className="mt-2 text-sm leading-6 text-[var(--campus-muted)]">
+              Current semester course records for {session?.name ?? "the student"}.
+            </p>
+          </div>
+          <span className="status-pill">Semester 3-2</span>
+        </div>
+
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[760px] border-separate border-spacing-y-3 text-left text-sm">
+            <thead>
+              <tr className="text-xs font-black uppercase tracking-[0.12em] text-[var(--campus-muted)]">
+                <th className="px-3">Subject</th>
+                <th className="px-3">Credit</th>
+                <th className="px-3">Exam</th>
+                <th className="px-3">Lab</th>
+                <th className="px-3">Assignment</th>
+                <th className="px-3">Attendance</th>
+                <th className="px-3">Final</th>
+                <th className="px-3">Grade</th>
+                <th className="px-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {subjects.map((subject) => (
+                <tr key={subject.code} className="bg-[rgba(255,248,230,0.68)]">
+                  <td className="rounded-l-md border-y border-l border-[var(--campus-border)] px-3 py-3">
+                    <p className="font-black">{subject.code}</p>
+                    <p className="mt-1 text-xs font-semibold text-[var(--campus-muted)]">
+                      {subject.title}
+                    </p>
+                  </td>
+                  <td className="border-y border-[var(--campus-border)] px-3 py-3 font-bold">
+                    {subject.credit}
+                  </td>
+                  <td className="border-y border-[var(--campus-border)] px-3 py-3 font-bold">
+                    {subject.examScore || "-"}
+                  </td>
+                  <td className="border-y border-[var(--campus-border)] px-3 py-3 font-bold">
+                    {subject.labScore || "-"}
+                  </td>
+                  <td className="border-y border-[var(--campus-border)] px-3 py-3 font-bold">
+                    {subject.assignmentScore}
+                  </td>
+                  <td className="border-y border-[var(--campus-border)] px-3 py-3 font-bold">
+                    {subject.attendanceScore}
+                  </td>
+                  <td className="border-y border-[var(--campus-border)] px-3 py-3 font-black">
+                    {subject.finalScore.toFixed(1)}
+                  </td>
+                  <td className="border-y border-[var(--campus-border)] px-3 py-3">
+                    <span className="status-pill">{subject.letterGrade}</span>
+                  </td>
+                  <td className="rounded-r-md border-y border-r border-[var(--campus-border)] px-3 py-3">
+                    <span
+                      className={
+                        subject.status === "Passed"
+                          ? "table-status table-status-active"
+                          : "table-status"
+                      }
+                    >
+                      {subject.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+        <div className="panel">
+          <h2 className="section-title">Fee Summary</h2>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <ResultMetric label="Semester fee" value={`Tk ${fee.semesterFee.toFixed(2)}`} />
+            <ResultMetric label="Scholarship" value={`Tk ${fee.scholarship.toFixed(2)}`} />
+            <ResultMetric label="Paid amount" value={`Tk ${fee.paidAmount.toFixed(2)}`} />
+            <ResultMetric label="Due amount" value={`Tk ${fee.dueAmount.toFixed(2)}`} />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <span className="status-pill">Status: {fee.status}</span>
+            <span className="status-pill">Due date: {fee.dueDate}</span>
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2 className="section-title">Student Profile</h2>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="field-label">Name</p>
+              <p className="mt-2 rounded-md bg-[rgba(255,248,230,0.68)] p-3 font-black">
+                {session?.name ?? "Rahim Uddin"}
+              </p>
+            </div>
+            <div>
+              <p className="field-label">Department</p>
+              <p className="mt-2 rounded-md bg-[rgba(255,248,230,0.68)] p-3 font-black">
+                CSE
+              </p>
+            </div>
+            <div>
+              <p className="field-label">Semester</p>
+              <p className="mt-2 rounded-md bg-[rgba(255,248,230,0.68)] p-3 font-black">
+                3-2
+              </p>
+            </div>
+            <div>
+              <p className="field-label">Advisor</p>
+              <p className="mt-2 rounded-md bg-[rgba(255,248,230,0.68)] p-3 font-black">
+                Nusrat Jahan
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
