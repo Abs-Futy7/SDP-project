@@ -93,6 +93,34 @@ export type StudentPolicyCalculationResponse = {
   fee_explanation: string;
 };
 
+export type ClassroomSummary = {
+  classroom_id: string;
+  title: string;
+  course_code: string;
+  teacher_name: string;
+  invite_code: string;
+  enrolled_student_count: number;
+  joined: boolean;
+};
+
+export type CreateClassroomPayload = {
+  title: string;
+  course_code: string;
+  teacher_name: string;
+};
+
+export type JoinClassroomPayload = {
+  invite_code: string;
+  student_id: string;
+  student_name: string;
+  student_email: string;
+};
+
+export type ClassroomJoinResponse = {
+  classroom: ClassroomSummary;
+  message: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -147,6 +175,25 @@ export function publishNotice(classroomId: string, title: string, message: strin
 
 export function calculateStudentPolicy(payload: StudentPolicyCalculationPayload) {
   return request<StudentPolicyCalculationResponse>("/api/student-policy/calculate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getClassrooms(studentId?: string) {
+  const query = studentId ? `?student_id=${encodeURIComponent(studentId)}` : "";
+  return request<ClassroomSummary[]>(`/api/classrooms${query}`);
+}
+
+export function createClassroom(payload: CreateClassroomPayload) {
+  return request<ClassroomSummary>("/api/classrooms", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function joinClassroom(payload: JoinClassroomPayload) {
+  return request<ClassroomJoinResponse>("/api/classrooms/join", {
     method: "POST",
     body: JSON.stringify(payload),
   });

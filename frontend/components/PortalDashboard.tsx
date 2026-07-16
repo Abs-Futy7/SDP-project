@@ -2,9 +2,13 @@
 
 import {
   calculateStudentPolicy,
+  createClassroom,
   getNoticeBoard,
+  getClassrooms,
   getStudentNoticeBoard,
+  joinClassroom,
   publishNotice,
+  type ClassroomSummary,
   type NoticeBoardResponse,
   type NoticeStudent,
   type StudentPolicyCalculationPayload,
@@ -17,7 +21,15 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type DashboardRole = "student" | "teacher" | "staff";
-type DashboardPage = "overview" | "classrooms" | "notices" | "students" | "records" | "policy" | "settings";
+type DashboardPage =
+  | "overview"
+  | "classrooms"
+  | "notices"
+  | "students"
+  | "results"
+  | "fees"
+  | "policy"
+  | "settings";
 type NumericPolicyField =
   | "exam_score"
   | "lab_score"
@@ -40,12 +52,14 @@ type StudentSubjectRecord = {
   attendanceScore: number;
   finalScore: number;
   letterGrade: string;
-  status: "Passed" | "In progress";
+  status: "Passed" | "Failed" | "In progress";
+  extraFee: number;
 };
 
 type StudentFeeRecord = {
   semesterFee: number;
   scholarship: number;
+  failedCourseFee: number;
   paidAmount: number;
   dueAmount: number;
   dueDate: string;
@@ -106,6 +120,7 @@ const studentSubjectRecords: StudentSubjectRecord[] = [
     finalScore: 84.0,
     letterGrade: "A+",
     status: "Passed",
+    extraFee: 0,
   },
   {
     code: "CSE-3204",
@@ -118,18 +133,20 @@ const studentSubjectRecords: StudentSubjectRecord[] = [
     finalScore: 86.2,
     letterGrade: "A+",
     status: "In progress",
+    extraFee: 0,
   },
   {
     code: "CSE-3207",
     title: "Database Management Systems",
     credit: 3,
-    examScore: 74,
+    examScore: 42,
     labScore: 0,
-    assignmentScore: 80,
-    attendanceScore: 88,
-    finalScore: 76.6,
-    letterGrade: "A",
-    status: "Passed",
+    assignmentScore: 48,
+    attendanceScore: 72,
+    finalScore: 48.4,
+    letterGrade: "F",
+    status: "Failed",
+    extraFee: 2500,
   },
   {
     code: "CSE-3211",
@@ -142,14 +159,18 @@ const studentSubjectRecords: StudentSubjectRecord[] = [
     finalScore: 72.1,
     letterGrade: "A",
     status: "In progress",
+    extraFee: 0,
   },
 ];
+
+const failedCourseFee = studentSubjectRecords.reduce((total, subject) => total + subject.extraFee, 0);
 
 const studentFeeRecord: StudentFeeRecord = {
   semesterFee: 25000,
   scholarship: 7500,
+  failedCourseFee,
   paidAmount: 12000,
-  dueAmount: 5500,
+  dueAmount: 5500 + failedCourseFee,
   dueDate: "2026-08-15",
   status: "Partial",
 };
@@ -170,6 +191,12 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
   const [policyResult, setPolicyResult] = useState<StudentPolicyCalculationResponse | null>(null);
   const [isCalculatingPolicy, setIsCalculatingPolicy] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [classrooms, setClassrooms] = useState<ClassroomSummary[]>([]);
+  const [classroomStatus, setClassroomStatus] = useState("Loading classrooms...");
+  const [joinCode, setJoinCode] = useState("SDP3204");
+  const [newClassroomTitle, setNewClassroomTitle] = useState("Artificial Intelligence");
+  const [newClassroomCode, setNewClassroomCode] = useState("CSE-4201");
+  const [isClassroomBusy, setIsClassroomBusy] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
 
@@ -193,7 +220,8 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
       ? [
           { key: "overview", label: "Overview" },
           { key: "classrooms", label: "Classrooms" },
-          { key: "records", label: "Academic & Fees" },
+          { key: "results", label: "Results" },
+          { key: "fees", label: "Fees" },
           { key: "notices", label: "My Notices" },
           { key: "settings", label: "Settings" },
         ]
@@ -259,6 +287,34 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
     };
   }, [isAuthorized, role, session?.university_id]);
 
+  useEffect(() => {
+    if (!isAuthorized) {
+      return;
+    }
+
+    let isMounted = true;
+    setClassroomStatus("Loading classrooms...");
+
+    getClassrooms(role === "student" ? session?.university_id : undefined)
+      .then((data) => {
+        if (!isMounted) {
+          return;
+        }
+        setClassrooms(data);
+        setClassroomStatus("Classrooms loaded.");
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+        setClassroomStatus(error instanceof Error ? error.message : "Could not load classrooms.");
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthorized, role, session?.university_id]);
+
   async function handlePublishNotice() {
     setIsPublishing(true);
     setStatus("Publishing notice through backend...");
@@ -293,6 +349,53 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
     }
   }
 
+  async function handleCreateClassroom() {
+    setIsClassroomBusy(true);
+    setClassroomStatus("Creating classroom...");
+
+    try {
+      const classroom = await createClassroom({
+        title: newClassroomTitle.trim() || newClassroomCode.trim(),
+        course_code: newClassroomCode.trim(),
+        teacher_name: session?.name ?? "Course Teacher",
+      });
+      setClassrooms((items) => [...items, classroom]);
+      setClassroomStatus(`Created ${classroom.course_code}. Invite code: ${classroom.invite_code}`);
+    } catch (error) {
+      setClassroomStatus(error instanceof Error ? error.message : "Could not create classroom.");
+    } finally {
+      setIsClassroomBusy(false);
+    }
+  }
+
+  async function handleJoinClassroom() {
+    setIsClassroomBusy(true);
+    setClassroomStatus("Joining classroom...");
+
+    try {
+      const data = await joinClassroom({
+        invite_code: joinCode.trim(),
+        student_id: session?.university_id ?? "S-2026-001",
+        student_name: session?.name ?? "Student",
+        student_email: session?.email ?? "student@example.com",
+      });
+      setClassrooms((items) => {
+        const exists = items.some((item) => item.classroom_id === data.classroom.classroom_id);
+        if (!exists) {
+          return [...items, data.classroom];
+        }
+        return items.map((item) =>
+          item.classroom_id === data.classroom.classroom_id ? data.classroom : item,
+        );
+      });
+      setClassroomStatus(data.message);
+    } catch (error) {
+      setClassroomStatus(error instanceof Error ? error.message : "Could not join classroom.");
+    } finally {
+      setIsClassroomBusy(false);
+    }
+  }
+
   if (!isAuthorized) {
     return (
       <main className="auth-page">
@@ -312,7 +415,24 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
     }
 
     if (activePage === "classrooms") {
-      return <ClassroomsPage role={role} student={studentNoticeBoard?.student} enrolledCount={enrolledStudents.length} />;
+      return (
+        <ClassroomsPage
+          role={role}
+          classrooms={classrooms}
+          student={studentNoticeBoard?.student}
+          enrolledCount={enrolledStudents.length}
+          status={classroomStatus}
+          joinCode={joinCode}
+          newClassroomTitle={newClassroomTitle}
+          newClassroomCode={newClassroomCode}
+          isBusy={isClassroomBusy}
+          onJoinCodeChange={setJoinCode}
+          onNewTitleChange={setNewClassroomTitle}
+          onNewCodeChange={setNewClassroomCode}
+          onJoin={handleJoinClassroom}
+          onCreate={handleCreateClassroom}
+        />
+      );
     }
 
     if (activePage === "notices") {
@@ -332,14 +452,17 @@ export default function PortalDashboard({ role }: PortalDashboardProps) {
       );
     }
 
-    if (activePage === "records" && role === "student") {
+    if (activePage === "results" && role === "student") {
       return (
-        <StudentRecordsPage
+        <StudentResultsPage
           session={session}
           subjects={studentSubjectRecords}
-          fee={studentFeeRecord}
         />
       );
+    }
+
+    if (activePage === "fees" && role === "student") {
+      return <StudentFeesPage subjects={studentSubjectRecords} fee={studentFeeRecord} />;
     }
 
     if (activePage === "students" && role !== "student") {
@@ -468,40 +591,137 @@ function OverviewPage({
 
 function ClassroomsPage({
   role,
+  classrooms,
   student,
   enrolledCount,
+  status,
+  joinCode,
+  newClassroomTitle,
+  newClassroomCode,
+  isBusy,
+  onJoinCodeChange,
+  onNewTitleChange,
+  onNewCodeChange,
+  onJoin,
+  onCreate,
 }: {
   role: DashboardRole;
+  classrooms: ClassroomSummary[];
   student?: NoticeStudent;
   enrolledCount: number;
+  status: string;
+  joinCode: string;
+  newClassroomTitle: string;
+  newClassroomCode: string;
+  isBusy: boolean;
+  onJoinCodeChange: (value: string) => void;
+  onNewTitleChange: (value: string) => void;
+  onNewCodeChange: (value: string) => void;
+  onJoin: () => void;
+  onCreate: () => void;
 }) {
   return (
-    <section className="panel">
-      <h2 className="section-title">Classrooms</h2>
-      <p className="mt-2 text-sm leading-6 text-[var(--campus-muted)]">
-        {role === "student"
-          ? "Your enrolled classroom and notice subscription status."
-          : "Active classroom sections managed in this portal."}
-      </p>
+    <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+      <section className="panel">
+        <h2 className="section-title">Classrooms</h2>
+        <p className="mt-2 text-sm leading-6 text-[var(--campus-muted)]">
+          {role === "student"
+            ? "Join teacher-created classrooms using an invite code."
+            : "Create classrooms and share invite codes with students."}
+        </p>
 
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <article className="rounded-md border border-[var(--campus-border)] bg-[rgba(255,248,230,0.68)] p-4">
-          <p className="text-lg font-black">{classroomId}</p>
-          <p className="mt-1 text-sm font-semibold text-[var(--campus-muted)]">
-            Software Development Project Lab
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="status-pill">Semester 3-2</span>
-            <span className="status-pill">CSE</span>
-            {role === "student" ? (
-              <span className="status-pill">{student?.enrolled ? "Subscribed" : "Paused"}</span>
-            ) : (
-              <span className="status-pill">{enrolledCount} students</span>
-            )}
+        {role === "student" ? (
+          <div className="mt-5 space-y-3">
+            <label className="field-label" htmlFor="join-code">
+              Invite code
+            </label>
+            <input
+              id="join-code"
+              value={joinCode}
+              onChange={(event) => onJoinCodeChange(event.target.value.toUpperCase())}
+              className="field"
+            />
+            <button type="button" className="primary-button" onClick={onJoin} disabled={isBusy}>
+              {isBusy ? "Joining..." : "Join classroom"}
+            </button>
           </div>
-        </article>
-      </div>
-    </section>
+        ) : (
+          <div className="mt-5 grid gap-3">
+            <div>
+              <label className="field-label" htmlFor="new-classroom-title">
+                Classroom title
+              </label>
+              <input
+                id="new-classroom-title"
+                value={newClassroomTitle}
+                onChange={(event) => onNewTitleChange(event.target.value)}
+                className="field mt-2"
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="new-classroom-code">
+                Course code
+              </label>
+              <input
+                id="new-classroom-code"
+                value={newClassroomCode}
+                onChange={(event) => onNewCodeChange(event.target.value.toUpperCase())}
+                className="field mt-2"
+              />
+            </div>
+            <button type="button" className="primary-button" onClick={onCreate} disabled={isBusy}>
+              {isBusy ? "Creating..." : "Create classroom"}
+            </button>
+          </div>
+        )}
+
+        <div className="mt-4 rounded-md bg-[var(--campus-blue-soft)] p-4 text-sm font-bold text-[var(--campus-blue)]">
+          {status}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="section-title">{role === "student" ? "My Classrooms" : "Managed Classrooms"}</h2>
+            <p className="mt-2 text-sm text-[var(--campus-muted)]">
+              {role === "student"
+                ? "Joined classrooms show as active for notices."
+                : "Share the invite code with students so they can join."}
+            </p>
+          </div>
+          <span className="status-pill">
+            {role === "student" ? student?.student_id ?? "Student" : `${enrolledCount} notice students`}
+          </span>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {classrooms.map((classroom) => (
+            <article key={classroom.classroom_id} className="student-row">
+              <div className="min-w-0">
+                <p className="font-black">{classroom.course_code}</p>
+                <p className="mt-1 truncate text-sm font-semibold text-[var(--campus-muted)]">
+                  {classroom.title}
+                </p>
+                <p className="mt-1 text-xs font-bold text-[var(--campus-muted)]">
+                  Teacher: {classroom.teacher_name}
+                </p>
+              </div>
+              <div className="rounded-md bg-white p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--campus-muted)]">
+                  Invite
+                </p>
+                <p className="mt-1 text-lg font-black">{classroom.invite_code}</p>
+                <p className="mt-2 text-xs font-bold text-[var(--campus-muted)]">
+                  {classroom.enrolled_student_count} student{classroom.enrolled_student_count === 1 ? "" : "s"}
+                  {role === "student" ? ` / ${classroom.joined ? "Joined" : "Not joined"}` : ""}
+                </p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -798,18 +1018,17 @@ function ResultMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StudentRecordsPage({
+function StudentResultsPage({
   session,
   subjects,
-  fee,
 }: {
   session: AuthSession | null;
   subjects: StudentSubjectRecord[];
-  fee: StudentFeeRecord;
 }) {
   const totalCredits = subjects.reduce((total, subject) => total + subject.credit, 0);
   const averageScore =
     subjects.reduce((total, subject) => total + subject.finalScore, 0) / subjects.length;
+  const failedSubjects = subjects.filter((subject) => subject.status === "Failed");
 
   return (
     <div className="grid gap-5">
@@ -817,7 +1036,7 @@ function StudentRecordsPage({
         <ResultMetric label="Student ID" value={session?.university_id ?? "S-2026-001"} />
         <ResultMetric label="Total credits" value={totalCredits.toFixed(1)} />
         <ResultMetric label="Average score" value={averageScore.toFixed(1)} />
-        <ResultMetric label="Fee due" value={`Tk ${fee.dueAmount.toFixed(2)}`} />
+        <ResultMetric label="Failed subjects" value={String(failedSubjects.length)} />
       </section>
 
       <section className="panel">
@@ -893,49 +1112,71 @@ function StudentRecordsPage({
           </table>
         </div>
       </section>
+    </div>
+  );
+}
 
-      <section className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+function StudentFeesPage({
+  subjects,
+  fee,
+}: {
+  subjects: StudentSubjectRecord[];
+  fee: StudentFeeRecord;
+}) {
+  const failedSubjects = subjects.filter((subject) => subject.status === "Failed");
+  const netFee = fee.semesterFee - fee.scholarship + fee.failedCourseFee;
+
+  return (
+    <div className="grid gap-5">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <ResultMetric label="Semester fee" value={`Tk ${fee.semesterFee.toFixed(2)}`} />
+        <ResultMetric label="Scholarship" value={`Tk ${fee.scholarship.toFixed(2)}`} />
+        <ResultMetric label="Failed course fee" value={`Tk ${fee.failedCourseFee.toFixed(2)}`} />
+        <ResultMetric label="Due amount" value={`Tk ${fee.dueAmount.toFixed(2)}`} />
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
         <div className="panel">
           <h2 className="section-title">Fee Summary</h2>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <ResultMetric label="Semester fee" value={`Tk ${fee.semesterFee.toFixed(2)}`} />
-            <ResultMetric label="Scholarship" value={`Tk ${fee.scholarship.toFixed(2)}`} />
+            <ResultMetric label="Net fee" value={`Tk ${netFee.toFixed(2)}`} />
             <ResultMetric label="Paid amount" value={`Tk ${fee.paidAmount.toFixed(2)}`} />
-            <ResultMetric label="Due amount" value={`Tk ${fee.dueAmount.toFixed(2)}`} />
+            <ResultMetric label="Payment status" value={fee.status} />
+            <ResultMetric label="Due date" value={fee.dueDate} />
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="status-pill">Status: {fee.status}</span>
-            <span className="status-pill">Due date: {fee.dueDate}</span>
+          <div className="mt-4 rounded-md bg-[var(--campus-blue-soft)] p-4 text-sm font-bold text-[var(--campus-blue)]">
+            Failed courses add an extra retake fee to the student's payable amount.
           </div>
         </div>
 
         <div className="panel">
-          <h2 className="section-title">Student Profile</h2>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="field-label">Name</p>
-              <p className="mt-2 rounded-md bg-[rgba(255,248,230,0.68)] p-3 font-black">
-                {session?.name ?? "Rahim Uddin"}
+          <h2 className="section-title">Extra Fee Details</h2>
+          <div className="mt-5 space-y-3">
+            {failedSubjects.length > 0 ? (
+              failedSubjects.map((subject) => (
+                <article
+                  key={subject.code}
+                  className="rounded-md border border-[var(--campus-border)] bg-[rgba(255,248,230,0.68)] p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-black">{subject.code}</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--campus-muted)]">
+                        {subject.title}
+                      </p>
+                    </div>
+                    <span className="status-pill">Grade {subject.letterGrade}</span>
+                  </div>
+                  <p className="mt-3 text-sm font-bold text-[var(--campus-muted)]">
+                    Extra fee: Tk {subject.extraFee.toFixed(2)}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <p className="text-sm leading-6 text-[var(--campus-muted)]">
+                No failed subjects, so no extra retake fee is applied.
               </p>
-            </div>
-            <div>
-              <p className="field-label">Department</p>
-              <p className="mt-2 rounded-md bg-[rgba(255,248,230,0.68)] p-3 font-black">
-                CSE
-              </p>
-            </div>
-            <div>
-              <p className="field-label">Semester</p>
-              <p className="mt-2 rounded-md bg-[rgba(255,248,230,0.68)] p-3 font-black">
-                3-2
-              </p>
-            </div>
-            <div>
-              <p className="field-label">Advisor</p>
-              <p className="mt-2 rounded-md bg-[rgba(255,248,230,0.68)] p-3 font-black">
-                Nusrat Jahan
-              </p>
-            </div>
+            )}
           </div>
         </div>
       </section>

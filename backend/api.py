@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import random
+import string
 from dataclasses import asdict
 from typing import Dict, List, Literal, Optional
 
@@ -141,6 +143,34 @@ class StudentPolicyCalculationResponse(BaseModel):
     fee_explanation: str
 
 
+class ClassroomSummary(BaseModel):
+    classroom_id: str
+    title: str
+    course_code: str
+    teacher_name: str
+    invite_code: str
+    enrolled_student_count: int
+    joined: bool = False
+
+
+class CreateClassroomRequest(BaseModel):
+    title: str
+    course_code: str
+    teacher_name: str
+
+
+class JoinClassroomRequest(BaseModel):
+    invite_code: str
+    student_id: str
+    student_name: str
+    student_email: str
+
+
+class ClassroomJoinResponse(BaseModel):
+    classroom: ClassroomSummary
+    message: str
+
+
 enrollment_service = ClassroomEnrollmentService()
 classroom_students: Dict[str, List[EnrolledStudent]] = {
     "CSE-3204": [
@@ -148,6 +178,14 @@ classroom_students: Dict[str, List[EnrolledStudent]] = {
         EnrolledStudent("S-2026-002", "Karim Ahmed", "karim@student.example.com"),
         EnrolledStudent("S-2026-003", "Nabila Islam", "nabila@student.example.com"),
     ]
+}
+classroom_catalog: Dict[str, Dict[str, str]] = {
+    "CSE-3204": {
+        "title": "Software Development Project Lab",
+        "course_code": "CSE-3204",
+        "teacher_name": "Nusrat Jahan",
+        "invite_code": "SDP3204",
+    }
 }
 
 demo_users = {
@@ -177,6 +215,32 @@ demo_users = {
 for classroom_id, students in classroom_students.items():
     for student in students:
         enrollment_service.enroll_student(classroom_id, student)
+
+
+def _generate_invite_code() -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    while True:
+        code = "".join(random.choice(alphabet) for _ in range(6))
+        if all(classroom["invite_code"] != code for classroom in classroom_catalog.values()):
+            return code
+
+
+def _classroom_summary(classroom_id: str, student_id: Optional[str] = None) -> ClassroomSummary:
+    classroom = classroom_catalog[classroom_id]
+    students = classroom_students.setdefault(classroom_id, [])
+    joined = False
+    if student_id:
+        joined = any(student.student_id == student_id for student in students)
+
+    return ClassroomSummary(
+        classroom_id=classroom_id,
+        title=classroom["title"],
+        course_code=classroom["course_code"],
+        teacher_name=classroom["teacher_name"],
+        invite_code=classroom["invite_code"],
+        enrolled_student_count=len(students),
+        joined=joined,
+    )
 
 
 def _registration_data(request: RegisterUserRequest) -> Dict[str, str]:
@@ -332,6 +396,65 @@ def health_check():
         "database_connected": database is not None,
         "cors_origins": _get_cors_origins(),
     }
+
+
+@app.get("/api/classrooms", response_model=List[ClassroomSummary])
+def list_classrooms(student_id: Optional[str] = None):
+    return [_classroom_summary(classroom_id, student_id) for classroom_id in classroom_catalog]
+
+
+@app.post("/api/classrooms", response_model=ClassroomSummary)
+def create_classroom(request: CreateClassroomRequest):
+    course_code = request.course_code.strip().upper()
+    if not course_code:
+        raise HTTPException(status_code=400, detail="Course code is required.")
+
+    classroom_id = course_code
+    if classroom_id in classroom_catalog:
+        raise HTTPException(status_code=400, detail=f"Classroom {classroom_id} already exists.")
+
+    classroom_catalog[classroom_id] = {
+        "title": request.title.strip() or course_code,
+        "course_code": course_code,
+        "teacher_name": request.teacher_name.strip() or "Course Teacher",
+        "invite_code": _generate_invite_code(),
+    }
+    classroom_students[classroom_id] = []
+    enrollment_service.get_notice_board(classroom_id)
+
+    return _classroom_summary(classroom_id)
+
+
+@app.post("/api/classrooms/join", response_model=ClassroomJoinResponse)
+def join_classroom(request: JoinClassroomRequest):
+    invite_code = request.invite_code.strip().upper()
+    classroom_id = next(
+        (
+            item_id
+            for item_id, classroom in classroom_catalog.items()
+            if classroom["invite_code"].upper() == invite_code
+        ),
+        None,
+    )
+
+    if classroom_id is None:
+        raise HTTPException(status_code=404, detail="No classroom found for this invite code.")
+
+    students = classroom_students.setdefault(classroom_id, [])
+    existing_student = next((student for student in students if student.student_id == request.student_id), None)
+    if existing_student is None:
+        existing_student = EnrolledStudent(
+            request.student_id,
+            request.student_name,
+            request.student_email,
+        )
+        students.append(existing_student)
+        enrollment_service.enroll_student(classroom_id, existing_student)
+
+    return ClassroomJoinResponse(
+        classroom=_classroom_summary(classroom_id, request.student_id),
+        message=f"{request.student_name} joined {classroom_id}.",
+    )
 
 
 @app.post("/api/register", response_model=RegisterUserResponse)
