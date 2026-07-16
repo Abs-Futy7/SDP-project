@@ -11,6 +11,9 @@ In this task, the project only creates one shared database connection object. La
 - `database.py` - contains the `DatabaseConnection` Singleton class.
 - `user_factory.py` - contains the Abstract Factory implementation for user registration.
 - `notice_observer.py` - contains the Observer implementation for classroom notices.
+- `grade_strategy.py` - contains the Strategy implementation for different grade calculation policies.
+- `fee_strategy.py` - contains the Strategy implementation for different student fee policies.
+- `api.py` - contains the FastAPI routes used by the frontend dashboard.
 - `main.py` - checks that the Singleton works, tests the MongoDB Atlas connection, and demonstrates user registration and classroom notices.
 - `.env.example` - shows the required environment variables.
 - `requirements.txt` - Python packages needed for this task.
@@ -162,9 +165,13 @@ Useful API endpoints:
 - `GET /api/health`
 - `POST /api/login`
 - `POST /api/register`
+- `GET /api/classrooms`
+- `POST /api/classrooms`
+- `POST /api/classrooms/join`
 - `GET /api/classrooms/CSE-3204/notice-board`
 - `GET /api/classrooms/CSE-3204/students/S-2026-001/notice-board`
 - `POST /api/classrooms/CSE-3204/notices`
+- `POST /api/student-policy/calculate`
 
 ## Deploy On Vercel Free
 
@@ -881,3 +888,509 @@ If there are `n` enrolled students, publishing one notice takes `O(n)` time beca
 ### Short viva answer
 
 This project uses Observer because one classroom notice board has many enrolled students. The notice board is the subject, and students are observers. Students subscribe using `attach()`. When a new notice is published, the notice board calls `notify()`, and each student receives the notice through `update()`. Without Observer, the notice board would directly notify each student and become tightly coupled with notification logic. Runtime is `O(n)` for `n` students, which is expected because every enrolled student must receive the notice.
+
+---
+
+## Task 4: Strategy Pattern For Grade And Fee Calculation
+
+The backend now uses the **Strategy Design Pattern** for a new school management feature called the **Student Policy Calculator**.
+
+This feature calculates:
+
+- student final grade using a selected grading policy
+- student payable fee using a selected fee policy
+
+The important idea is that different courses and students can follow different rules. Instead of writing many `if/elif` blocks inside the API route, each rule is placed in its own strategy class.
+
+## Strategy Pattern Structure
+
+There are two separate strategy groups:
+
+```text
+GradeStrategy
+  |
+  | implemented by
+  v
+LabCourseGradeStrategy
+TheoryCourseGradeStrategy
+BalancedGradeStrategy
+```
+
+```text
+FeeStrategy
+  |
+  | implemented by
+  v
+RegularFeeStrategy
+MeritScholarshipFeeStrategy
+SiblingDiscountFeeStrategy
+FinancialAidFeeStrategy
+```
+
+The API endpoint selects the correct strategy at runtime based on the request data.
+
+## Grade Strategy Module
+
+File:
+
+```text
+grade_strategy.py
+```
+
+The grade module contains:
+
+- `GradeStrategy` - abstract base class for all grade policies
+- `GradeResult` - result object for final score and letter grade
+- `LabCourseGradeStrategy`
+- `TheoryCourseGradeStrategy`
+- `BalancedGradeStrategy`
+- `GradeStrategyProvider`
+
+### Grade Policies
+
+`LabCourseGradeStrategy` is useful for lab courses like SDP Lab:
+
+```text
+Lab score        50%
+Viva score       20%
+Assignment score 20%
+Attendance       10%
+```
+
+`TheoryCourseGradeStrategy` is useful for normal theory courses:
+
+```text
+Exam score       70%
+Assignment score 20%
+Attendance       10%
+```
+
+`BalancedGradeStrategy` is useful when exam, lab, assignment, and attendance all matter:
+
+```text
+Exam score       40%
+Lab score        30%
+Assignment score 20%
+Attendance       10%
+```
+
+### Letter Grade Rules
+
+The final numeric score is converted into a letter grade:
+
+```text
+80 or above  -> A+
+70 to 79     -> A
+60 to 69     -> B
+50 to 59     -> C
+Below 50     -> F
+```
+
+## Fee Strategy Module
+
+File:
+
+```text
+fee_strategy.py
+```
+
+The fee module contains:
+
+- `FeeStrategy` - abstract base class for all fee policies
+- `FeeResult` - result object for payable fee information
+- `RegularFeeStrategy`
+- `MeritScholarshipFeeStrategy`
+- `SiblingDiscountFeeStrategy`
+- `FinancialAidFeeStrategy`
+- `FeeStrategyProvider`
+
+### Fee Policies
+
+```text
+Regular fee        -> 0% discount
+Merit scholarship  -> 30% discount
+Sibling discount   -> 15% discount
+Financial aid      -> 50% discount
+```
+
+Each strategy returns:
+
+- original fee
+- discount amount
+- payable fee
+- policy name
+- explanation
+
+## API Endpoint
+
+The Strategy Pattern is used by this endpoint:
+
+```text
+POST /api/student-policy/calculate
+```
+
+Example request:
+
+```json
+{
+  "student_id": "S-2026-001",
+  "student_name": "Rahim Uddin",
+  "course_id": "CSE-3204",
+  "grade_policy": "lab_course",
+  "fee_policy": "merit",
+  "exam_score": 78,
+  "lab_score": 88,
+  "assignment_score": 82,
+  "attendance_score": 90,
+  "viva_score": 84,
+  "base_fee": 25000
+}
+```
+
+Example response:
+
+```json
+{
+  "student_id": "S-2026-001",
+  "student_name": "Rahim Uddin",
+  "course_id": "CSE-3204",
+  "final_score": 86.2,
+  "letter_grade": "A+",
+  "grade_policy_used": "Lab Course",
+  "grade_explanation": "Lab 50%, viva 20%, assignment 20%, and attendance 10% were applied.",
+  "original_fee": 25000,
+  "discount_amount": 7500,
+  "payable_fee": 17500,
+  "fee_policy_used": "Merit Scholarship",
+  "fee_explanation": "Merit scholarship policy applied with a 30% discount."
+}
+```
+
+## How The Strategy Flow Works
+
+Example flow:
+
+```text
+Teacher/staff submits marks and fee data
+  |
+  v
+FastAPI endpoint receives selected policies
+  |
+  v
+GradeStrategyProvider selects grade strategy
+FeeStrategyProvider selects fee strategy
+  |
+  v
+Selected strategies calculate result
+  |
+  v
+API returns grade and fee summary
+```
+
+The endpoint does not need to know the internal formula of each policy. It only calls:
+
+```python
+grade_result = grade_strategy.calculate(scores)
+fee_result = fee_strategy.calculate(base_fee)
+```
+
+This is the main point of Strategy Pattern.
+
+## Why This Follows Strategy Pattern
+
+The Strategy Pattern is used when there are multiple algorithms for the same task and the program needs to choose one at runtime.
+
+In this project:
+
+- grade calculation has multiple algorithms
+- fee calculation has multiple algorithms
+- each algorithm is placed in a separate class
+- the API route uses the common strategy interface
+- the selected strategy can change based on request data
+
+For example, this request uses lab course grading:
+
+```json
+"grade_policy": "lab_course"
+```
+
+Another request can use theory course grading:
+
+```json
+"grade_policy": "theory_course"
+```
+
+The API route stays almost the same. Only the selected strategy changes.
+
+## Why Did We Use Strategy?
+
+We used Strategy because grade and fee calculation rules can change from case to case.
+
+For grades:
+
+- lab courses need lab-focused calculation
+- theory courses need exam-focused calculation
+- mixed courses need balanced calculation
+
+For fees:
+
+- regular students pay full fee
+- merit students get scholarship discount
+- sibling students get sibling discount
+- financially supported students get financial aid
+
+This improves:
+
+- **loose coupling:** the API does not directly depend on all formulas
+- **maintainability:** each formula is in its own class
+- **readability:** no long `if/elif` calculation block
+- **extensibility:** new policies can be added with new strategy classes
+- **testing:** each policy can be tested separately
+
+## What Happens Without Strategy?
+
+Without Strategy, the endpoint might look like this:
+
+```python
+if grade_policy == "lab_course":
+    final_score = lab_score * 0.50 + viva_score * 0.20 + ...
+elif grade_policy == "theory_course":
+    final_score = exam_score * 0.70 + ...
+elif grade_policy == "balanced":
+    final_score = exam_score * 0.40 + lab_score * 0.30 + ...
+```
+
+And fee calculation would also need another set of conditions:
+
+```python
+if fee_policy == "regular":
+    discount = 0
+elif fee_policy == "merit":
+    discount = base_fee * 0.30
+elif fee_policy == "sibling":
+    discount = base_fee * 0.15
+elif fee_policy == "financial_aid":
+    discount = base_fee * 0.50
+```
+
+This works, but as the project grows the endpoint becomes harder to read and maintain.
+
+Without Strategy:
+
+- the API route becomes too large
+- adding a new policy requires modifying old endpoint code
+- formulas are mixed with request handling
+- testing individual policies becomes harder
+- the code violates the Open/Closed Principle
+
+## Runtime Behavior
+
+At runtime, the provider selects the strategy using a dictionary:
+
+```python
+strategy = GradeStrategyProvider.get_strategy("lab_course")
+```
+
+Then the selected strategy calculates the result:
+
+```python
+result = strategy.calculate(scores)
+```
+
+The runtime overhead is very small because it only adds:
+
+1. one dictionary lookup
+2. one method call through the strategy interface
+
+This is much cheaper than real backend work such as API processing, database calls, and network requests.
+
+## How Can We Add A New Strategy?
+
+Suppose we want a new `ProjectCourseGradeStrategy`.
+
+We would add:
+
+1. a new class that extends `GradeStrategy`
+2. its own `calculate()` method
+3. one registry entry in `GradeStrategyProvider`
+
+Example:
+
+```python
+_strategies = {
+    "lab_course": LabCourseGradeStrategy(),
+    "theory_course": TheoryCourseGradeStrategy(),
+    "balanced": BalancedGradeStrategy(),
+    "project_course": ProjectCourseGradeStrategy(),
+}
+```
+
+The API endpoint does not need major changes because it already works with the `GradeStrategy` abstraction.
+
+## Student Result And Fee Dashboard
+
+The frontend now shows student information in separate sections:
+
+- **Results** - subject marks, final score, letter grade, and pass/fail status
+- **Fees** - semester fee, scholarship, paid amount, due amount, and failed-course extra fee
+
+If a student fails a subject, the system shows an extra retake fee in the fee section.
+
+Example:
+
+```text
+Failed subject: CSE-3207 Database Management Systems
+Grade: F
+Extra fee: Tk 2500
+```
+
+This is currently demo dashboard data in the frontend. The backend Strategy endpoint is ready for dynamic grade and fee calculation.
+
+## Strategy Viva Notes
+
+### What is Strategy Pattern?
+
+Strategy Pattern is a behavioral design pattern where different algorithms are placed in separate classes, and the program selects one algorithm at runtime.
+
+### Where did we use Strategy?
+
+We used it in:
+
+- `grade_strategy.py` for grade calculation
+- `fee_strategy.py` for fee calculation
+- `/api/student-policy/calculate` endpoint to select and apply the strategies
+
+### What are the strategies?
+
+Grade strategies:
+
+- `LabCourseGradeStrategy`
+- `TheoryCourseGradeStrategy`
+- `BalancedGradeStrategy`
+
+Fee strategies:
+
+- `RegularFeeStrategy`
+- `MeritScholarshipFeeStrategy`
+- `SiblingDiscountFeeStrategy`
+- `FinancialAidFeeStrategy`
+
+### What is the context?
+
+The FastAPI endpoint works as the context. It receives the selected policy, asks the provider for the correct strategy, and then calls `calculate()`.
+
+### Why is this better than if/else?
+
+It keeps each formula separate. The API route handles the request, and the strategy classes handle calculation. This makes the code cleaner and easier to extend.
+
+### What if the teacher wants a new grading rule?
+
+We can create a new strategy class and register it in `GradeStrategyProvider`. The endpoint can continue using the same interface.
+
+### Short viva answer
+
+This project uses Strategy Pattern for grade and fee calculation. Different courses and students need different calculation rules. Instead of writing all formulas inside the API route with many `if/elif` blocks, each formula is placed in its own strategy class. The API selects the correct strategy at runtime using `GradeStrategyProvider` and `FeeStrategyProvider`. This keeps the endpoint clean, follows the Open/Closed Principle, and makes it easy to add new policies later.
+
+---
+
+## Classroom Invite And Join Feature
+
+The backend also includes a classroom invite feature used by the teacher and student dashboards.
+
+Teachers or staff can create a classroom. The backend generates an invite code. Students can enter that code to join the classroom.
+
+## Classroom API Endpoints
+
+### List Classrooms
+
+```text
+GET /api/classrooms
+```
+
+For a student-specific joined status:
+
+```text
+GET /api/classrooms?student_id=S-2026-001
+```
+
+### Create Classroom
+
+```text
+POST /api/classrooms
+```
+
+Example request:
+
+```json
+{
+  "title": "Machine Learning",
+  "course_code": "CSE-4301",
+  "teacher_name": "Nusrat Jahan"
+}
+```
+
+Example response:
+
+```json
+{
+  "classroom_id": "CSE-4301",
+  "title": "Machine Learning",
+  "course_code": "CSE-4301",
+  "teacher_name": "Nusrat Jahan",
+  "invite_code": "A1B2C3",
+  "enrolled_student_count": 0,
+  "joined": false
+}
+```
+
+### Join Classroom
+
+```text
+POST /api/classrooms/join
+```
+
+Example request:
+
+```json
+{
+  "invite_code": "SDP3204",
+  "student_id": "S-2026-001",
+  "student_name": "Rahim Uddin",
+  "student_email": "rahim@student.example.com"
+}
+```
+
+Example response:
+
+```json
+{
+  "classroom": {
+    "classroom_id": "CSE-3204",
+    "title": "Software Development Project Lab",
+    "course_code": "CSE-3204",
+    "teacher_name": "Nusrat Jahan",
+    "invite_code": "SDP3204",
+    "enrolled_student_count": 3,
+    "joined": true
+  },
+  "message": "Rahim Uddin joined CSE-3204."
+}
+```
+
+## Classroom Viva Notes
+
+### How does classroom join work?
+
+The teacher creates a classroom and shares the invite code. The student enters the invite code. The backend finds the matching classroom and enrolls the student into that classroom notice board.
+
+### Is classroom data saved permanently?
+
+For this lab version, the new classroom catalog is stored in memory. It is useful for demo and viva. The existing notices and registered users can still use MongoDB depending on the environment variables.
+
+### How is this connected to Observer?
+
+When a student joins a classroom, the backend creates an `EnrolledStudent` object and attaches it to the classroom notice board. After that, when a notice is published, the student can receive the notice through the Observer pattern.
+
+### Short viva answer
+
+The classroom invite feature lets teachers create classrooms and share invite codes. Students use the code to join. Internally, joining a classroom enrolls the student in the classroom notice board, so the Observer pattern can notify them when notices are published. In this lab version, the classroom catalog is in memory for simple demonstration.
